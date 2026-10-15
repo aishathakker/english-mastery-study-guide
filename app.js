@@ -1,0 +1,33 @@
+const $ = id => document.getElementById(id);
+const selected = new Set();
+let flashIndex = 0, flipped = false, questions = [], questionIndex = 0, correctCount = 0, answered = false;
+const progressKey = 'literary-lab-best-v1';
+const shuffle = array => [...array].sort(() => Math.random() - .5);
+const safe = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function chosen(){return STUDY_DATA.filter(t=>selected.has(t.id))}
+function renderPicker(){
+ const grid = $('sectionGrid');grid.innerHTML='';
+ const groups=[...new Set(STUDY_DATA.map(t=>t.group))];
+ for(const group of groups){const title=document.createElement('div');title.className='group-title';title.textContent=group;grid.append(title);
+ for(const t of STUDY_DATA.filter(t=>t.group===group)){
+ const label=document.createElement('label');label.className='topic';label.innerHTML=`<input type="checkbox" ${selected.has(t.id)?'checked':''} value="${safe(t.id)}"><span class="topic-icon" aria-hidden="true">${t.icon}</span><span class="topic-label">${safe(t.title)}</span>`;
+ label.querySelector('input').addEventListener('change',e=>{e.target.checked?selected.add(t.id):selected.delete(t.id);updateStats()});grid.append(label);
+ }}updateStats();}
+function updateStats(){const count=chosen().length;const qs=chosen().reduce((sum,t)=>sum+t.questions.length,0);$('topicCount').textContent=count;$('questionCount').textContent=qs;$('selectionSummary').textContent=`${count} of ${STUDY_DATA.length} sections selected`;$('startButton').disabled=count===0;const score=localStorage.getItem(progressKey);$('bestScore').textContent=score===null?'—':`${score}%`;}
+$('selectAll').onclick=()=>{STUDY_DATA.forEach(t=>selected.add(t.id));renderPicker()};
+$('clearAll').onclick=()=>{selected.clear();renderPicker()};
+$('resetProgress').onclick=()=>{if(confirm('Reset your saved best quiz score?')){localStorage.removeItem(progressKey);updateStats()}};
+$('startButton').onclick=()=>{if(!selected.size)return;flashIndex=0;flipped=false;initQuiz();renderNotes();renderFlashcards();showTab('notes');$('workspace').hidden=false;$('activeTopics').textContent=`${chosen().length} selected sections · ${questions.length} possible questions`;$('workspace').scrollIntoView({behavior:'smooth',block:'start'})};
+$('editSelections').onclick=()=>{document.querySelector('.selection').scrollIntoView({behavior:'smooth',block:'start'})};
+for(const tab of document.querySelectorAll('.tab'))tab.onclick=()=>showTab(tab.dataset.tab);
+function showTab(which){for(const tab of document.querySelectorAll('.tab')){const active=tab.dataset.tab===which;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active))}for(const view of ['notes','flashcards','quiz'])$(view+'View').hidden=view!==which;}
+function renderNotes(){$('notesView').innerHTML=chosen().map(t=>`<article class="note-card"><div class="mode-label">${safe(t.group)}</div><h3>${t.icon} ${safe(t.title)}</h3><p>${safe(t.notes)}</p><p class="example"><strong>Example / application:</strong> ${safe(t.example)}</p><p class="takeaway"><strong>Mastery move:</strong> ${safe(t.takeaway)}</p></article>`).join('')}
+function allCards(){return chosen().flatMap(t=>t.cards.map(([front,back])=>({front,back,topic:t.title})))}
+function renderFlashcards(){const cards=allCards();if(!cards.length){$('flashcardsView').innerHTML='<p class="empty">Select at least one section.</p>';return}flashIndex=(flashIndex+cards.length)%cards.length;const card=cards[flashIndex];$('flashcardsView').innerHTML=`<div class="flash-shell"><div class="flash-counter">Card ${flashIndex+1} of ${cards.length} · ${safe(card.topic)}</div><button class="flash-card" id="flipCard" aria-label="Flip flashcard"><strong>${safe(flipped?card.back:card.front)}</strong><small>${flipped?'Click to see question':'Click to reveal answer'}</small></button><div class="flash-controls"><button class="small-button" id="prevCard">← Previous</button><button class="small-button" id="flipButton">Flip card</button><button class="small-button" id="nextCard">Next →</button></div></div>`;
+ $('flipCard').onclick=$('flipButton').onclick=()=>{flipped=!flipped;renderFlashcards()};$('prevCard').onclick=()=>{flashIndex--;flipped=false;renderFlashcards()};$('nextCard').onclick=()=>{flashIndex++;flipped=false;renderFlashcards()}}
+function initQuiz(){questions=shuffle(chosen().flatMap(t=>t.questions.map(([prompt,options,correct,explanation])=>({prompt,options,correct,explanation,topic:t.title}))));questionIndex=0;correctCount=0;answered=false;renderQuiz()}
+function renderQuiz(){const box=$('quizView');if(questionIndex>=questions.length){const percent=Math.round(correctCount/questions.length*100);const prior=Number(localStorage.getItem(progressKey)??-1);if(percent>prior)localStorage.setItem(progressKey,String(percent));updateStats();box.innerHTML=`<div class="question-box" style="text-align:center"><div class="mode-label">Session complete</div><h3>Your score: ${correctCount} / ${questions.length} (${percent}%)</h3><p>Try another round or edit your selected topics to focus your review.</p><button class="primary" id="retryQuiz">Try another round ↻</button></div>`;$('retryQuiz').onclick=initQuiz;return}
+ const q=questions[questionIndex];box.innerHTML=`<div class="question-box"><div class="question-meta"><span>QUESTION ${questionIndex+1} / ${questions.length}</span><span>${safe(q.topic)}</span></div><h3>${safe(q.prompt)}</h3><div id="answers"></div><div id="feedback" aria-live="polite"></div><div class="quiz-footer"><span class="quiz-score">Correct so far: <strong>${correctCount}</strong></span><button id="nextQuestion" class="primary" disabled>${questionIndex===questions.length-1?'See results':'Next question →'}</button></div></div>`;
+ q.options.forEach((option,i)=>{const button=document.createElement('button');button.className='answer';button.textContent=`${String.fromCharCode(65+i)}. ${option}`;button.onclick=()=>chooseAnswer(i);$('answers').append(button)});$('nextQuestion').onclick=()=>{questionIndex++;answered=false;renderQuiz()};}
+function chooseAnswer(i){if(answered)return;answered=true;const q=questions[questionIndex];if(i===q.correct)correctCount++;for(const [j,button] of [...document.querySelectorAll('.answer')].entries()){button.disabled=true;if(j===q.correct)button.classList.add('correct');else if(j===i)button.classList.add('wrong')}$('feedback').innerHTML=`<div class="feedback"><strong>${i===q.correct?'✓ Correct!':'Not quite.'}</strong> ${safe(q.explanation)}</div>`;$('nextQuestion').disabled=false;$('quizView').querySelector('.quiz-score strong').textContent=correctCount;}
+renderPicker();
